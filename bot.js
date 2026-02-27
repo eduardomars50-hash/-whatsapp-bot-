@@ -1,5 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const http = require('http');
 
 console.log('🤖 Jorge WhatsApp Bot starting...\n');
@@ -15,13 +16,15 @@ const client = new Client({
 });
 
 let isReady = false;
+let latestQR = null; // store latest QR string for /qr endpoint
 const messageLog = []; // in-memory store of all messages
 
 // ─── QR Code ────────────────────────────────────────────────
 client.on('qr', (qr) => {
+    latestQR = qr;
     console.log('\n📱 SCAN THIS QR CODE WITH YOUR WHATSAPP:\n');
     qrcode.generate(qr, { small: true });
-    console.log('\n⬆️  WhatsApp → Settings → Linked Devices → Link a Device\n');
+    console.log(`\n🌐 Or open: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost'}/qr\n`);
 });
 
 client.on('authenticated', () => {
@@ -65,6 +68,36 @@ client.on('message', async (msg) => {
 const WHATSAPP_SECRET = process.env.WHATSAPP_SECRET;
 
 const server = http.createServer(async (req, res) => {
+    // Serve scannable QR page (no auth — needed to link device)
+    if (req.method === 'GET' && req.url === '/qr') {
+        if (isReady) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<h2>✅ Already connected! No QR needed.</h2>');
+            return;
+        }
+        if (!latestQR) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<h2>⏳ QR not ready yet — refresh in 10 seconds</h2>');
+            return;
+        }
+        try {
+            const dataUrl = await QRCode.toDataURL(latestQR, { width: 400 });
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>WhatsApp QR</title>
+<meta http-equiv="refresh" content="20">
+<style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;font-family:sans-serif;background:#111;color:#fff}img{border-radius:16px;background:#fff;padding:16px}</style>
+</head><body>
+<h2>📱 Scan with WhatsApp → Settings → Linked Devices</h2>
+<img src="${dataUrl}" />
+<p style="color:#888">Auto-refreshes every 20s. Scan quickly — QR expires.</p>
+</body></html>`);
+        } catch (e) {
+            res.writeHead(500); res.end('QR generation failed');
+        }
+        return;
+    }
+
     // Auth check — skip only for /status (health check)
     if (req.url !== '/status') {
         const auth = req.headers['authorization'];
