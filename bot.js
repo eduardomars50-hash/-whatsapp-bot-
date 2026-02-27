@@ -62,7 +62,19 @@ client.on('message', async (msg) => {
 
 // ─── HTTP Command Server ────────────────────────────────────
 // Jorge uses this to send messages on Eduardo's behalf
+const WHATSAPP_SECRET = process.env.WHATSAPP_SECRET;
+
 const server = http.createServer(async (req, res) => {
+    // Auth check — skip only for /status (health check)
+    if (req.url !== '/status') {
+        const auth = req.headers['authorization'];
+        if (WHATSAPP_SECRET && auth !== `Bearer ${WHATSAPP_SECRET}`) {
+            res.writeHead(401);
+            res.end(JSON.stringify({ error: 'Unauthorized' }));
+            return;
+        }
+    }
+
     if (req.method === 'POST' && req.url === '/send') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -203,8 +215,9 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-server.listen(3001, '127.0.0.1', () => {
-    console.log('🌐 Command server listening on http://localhost:3001\n');
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Command server listening on port ${PORT}\n`);
 });
 
 client.on('disconnected', (reason) => {
