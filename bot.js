@@ -8,6 +8,8 @@ const client = new Client({
     authStrategy: new LocalAuth({ dataPath: './session' }),
     puppeteer: {
         headless: true,
+        protocolTimeout: 120000,
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
 });
@@ -129,6 +131,22 @@ const server = http.createServer(async (req, res) => {
 
             res.writeHead(200);
             res.end(JSON.stringify({ contact: contact.pushname || contact.name, messages: formatted }));
+        } catch (err) {
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: err.message }));
+        }
+
+    } else if (req.method === 'GET' && req.url.startsWith('/groups')) {
+        // Search groups by name: GET /groups?q=chico
+        try {
+            const urlParams = new URL(req.url, 'http://localhost');
+            const query = (urlParams.searchParams.get('q') || '').toLowerCase();
+            const chats = await client.getChats();
+            const groups = chats
+                .filter(c => c.isGroup && c.name.toLowerCase().includes(query))
+                .map(c => ({ name: c.name, id: c.id._serialized }));
+            res.writeHead(200);
+            res.end(JSON.stringify(groups));
         } catch (err) {
             res.writeHead(500);
             res.end(JSON.stringify({ error: err.message }));
